@@ -2,9 +2,7 @@ name := "metagen"
 
 lazy val commonSettings = Seq(
   organization := "io.github.vigoo",
-  scalaVersion := "2.13.6",
-  version := "0.1",
-  scalaVersion := "2.13.6",
+  scalaVersion := "2.12.13",
   addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.13.2" cross CrossVersion.full)
 )
 

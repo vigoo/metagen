@@ -4,14 +4,27 @@ import org.scalafmt.interfaces.Scalafmt
 import zio.blocking.Blocking
 import zio.nio.core.file.Path
 import zio.nio.file.Files
-import zio.{Has, Ref, Task, UIO, ZIO, ZLayer}
+import zio.{Has, IO, Ref, Task, UIO, ZIO, ZLayer}
 
 import scala.meta.Term
 
 trait Generator {
-  def generateFile[E](pkg: Package, name: String)(
-      contents: ZIO[Has[CodeFileGenerator], E, Term.Block]
-  ): ZIO[Blocking, GeneratorFailure[E], Path]
+  def generateScalaPackage[R <: Blocking, E](pkg: Package, name: String)(
+      contents: ZIO[R with Has[CodeFileGenerator], E, Term.Block]
+  ): ZIO[R, GeneratorFailure[E], Path] =
+    generateScalaTarget[R, E](CodeFileGeneratorContext.ScalaPackage(pkg, name))(contents)
+  def generateScalaPackageObject[R <: Blocking, E](pkg: Package, name: String)(
+      contents: ZIO[R with Has[CodeFileGenerator], E, Term.Block]
+  ): ZIO[R, GeneratorFailure[E], Path] =
+    generateScalaTarget[R, E](CodeFileGeneratorContext.ScalaPackageObject(pkg, name))(contents)
+
+  def generateRawFile[R <: Blocking, E](relativePath: Path)(
+      contents: ZIO[R with Has[CodeFileGenerator], E, String]
+  ): ZIO[R, GeneratorFailure[E], Path]
+  def generateScalaTarget[R <: Blocking, E](target: CodeFileGeneratorContext.Target)(
+      contents: ZIO[R with Has[CodeFileGenerator], E, Term.Block]
+  ): ZIO[R, GeneratorFailure[E], Path]
+
   def setScalaVersion(version: String): UIO[Unit]
   def enableFormatting(): UIO[Unit]
   def disableFormatting(): UIO[Unit]
@@ -20,12 +33,12 @@ trait Generator {
 
 object Generator {
   class Live(contextRef: Ref[GeneratorContext], scalafmt: Scalafmt) extends Generator {
-    override def generateFile[E](pkg: Package, name: String)(
-        contents: ZIO[Has[CodeFileGenerator], E, Term.Block]
-    ): ZIO[Blocking, GeneratorFailure[E], Path] =
+    override def generateScalaTarget[R <: Blocking, E](target: CodeFileGeneratorContext.Target)(
+        contents: ZIO[R with Has[CodeFileGenerator], E, Term.Block]
+    ): ZIO[R, GeneratorFailure[E], Path] =
       for {
         context           <- contextRef.get
-        codeFileGenerator <- CodeFileGenerator.make(scalafmt, context, pkg, name)
+        codeFileGenerator <- CodeFileGenerator.make(scalafmt, context, target)
         generator          =
           for {
             tree          <- contents.mapError(GeneratorFailure.CustomFailure.apply)
@@ -46,7 +59,30 @@ object Generator {
                                CodeFileGenerator.writeIfDifferent(unformatted)
                              }
           } yield path
-        path              <- generator.provideSome[Blocking](_ ++ Has(codeFileGenerator))
+        env               <- ZIO.environment[R]
+        fileEnv            = env ++ Has(codeFileGenerator)
+        path              <- generator.provide(fileEnv)
+      } yield path
+
+    def generateRawFile[R <: Blocking, E](relativePath: Path)(
+        contents: ZIO[R with Has[CodeFileGenerator], E, String]
+    ): ZIO[R, GeneratorFailure[E], Path] =
+      for {
+        context           <- contextRef.get
+        codeFileGenerator <- CodeFileGenerator.make(scalafmt, context, CodeFileGeneratorContext.RawFile(relativePath))
+        generator          = for {
+                               path <- CodeFileGenerator.targetPath
+                               raw  <- contents.mapError(GeneratorFailure.CustomFailure.apply)
+                               _    <- path.parent match {
+                                         case Some(directory) =>
+                                           Files.createDirectories(directory).mapError(GeneratorFailure.FailedToCreateDirectories)
+                                         case None            => ZIO.unit
+                                       }
+                               _    <- CodeFileGenerator.writeIfDifferent(raw)
+                             } yield path
+        env               <- ZIO.environment[R]
+        fileEnv            = env ++ Has(codeFileGenerator)
+        path              <- generator.provide(fileEnv)
       } yield path
 
     override def setScalaVersion(version: String): UIO[Unit] =
@@ -64,18 +100,28 @@ object Generator {
 
   val defaultScalaVersion: String = "2.13.6"
 
-  def make: Task[Generator] =
+  def make: IO[GeneratorFailure[Nothing], Generator] =
     for {
-      scalafmt   <- ZIO.effect(Scalafmt.create(this.getClass.getClassLoader))
+      scalafmt   <- ZIO.effect(Scalafmt.create(this.getClass.getClassLoader)).mapError(GeneratorFailure.ScalaFmtFailure)
       contextRef <- Ref.make(GeneratorContext(defaultScalaVersion, formattingEnabled = true, root = Path(".")))
     } yield new Live(contextRef, scalafmt)
 
-  val live: ZLayer[Any, Throwable, Has[Generator]] = make.toLayer
+  val live: ZLayer[Any, GeneratorFailure[Nothing], Has[Generator]] = make.toLayer
 
-  def generateFile[E](pkg: Package, name: String)(
-      contents: ZIO[Has[CodeFileGenerator], E, Term.Block]
-  ): ZIO[Blocking with Has[Generator], GeneratorFailure[E], Path] =
-    ZIO.service[Generator].flatMap(_.generateFile(pkg, name)(contents))
+  def generateScalaPackage[R <: Blocking, E](pkg: Package, name: String)(
+      contents: ZIO[R with Has[CodeFileGenerator], E, Term.Block]
+  ): ZIO[R with Has[Generator], GeneratorFailure[E], Path] =
+    ZIO.service[Generator].flatMap(_.generateScalaPackage[R, E](pkg, name)(contents))
+
+  def generateScalaPackageObject[R <: Blocking, E](pkg: Package, name: String)(
+      contents: ZIO[R with Has[CodeFileGenerator], E, Term.Block]
+  ): ZIO[R with Has[Generator], GeneratorFailure[E], Path] =
+    ZIO.service[Generator].flatMap(_.generateScalaPackageObject[R, E](pkg, name)(contents))
+
+  def generateRawFile[R <: Blocking, E](relativePath: Path)(
+      contents: ZIO[R with Has[CodeFileGenerator], E, String]
+  ): ZIO[R with Has[Generator], GeneratorFailure[E], Path] =
+    ZIO.service[Generator].flatMap(_.generateRawFile[R, E](relativePath)(contents))
 
   def setScalaVersion(version: String): ZIO[Has[Generator], Nothing, Unit] =
     ZIO.serviceWith(_.setScalaVersion(version))

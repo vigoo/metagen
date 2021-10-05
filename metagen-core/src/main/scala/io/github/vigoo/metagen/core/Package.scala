@@ -19,10 +19,27 @@ case class Package(path: NonEmptyList[String]) {
       case NonEmptyList.Single(head)     => Type.Name(head)
     }
 
-  def asPath: Path = Path(path.head, path.tail: _*)
+  def asPath: Path = {
+    val rev = path.reverse
+    Path(rev.head, rev.tail: _*)
+  }
+
+  def /(child: String): Package = Package(NonEmptyList.Cons(child, path))
+
+  def parent: Package =
+    path.tail match {
+      case Nil          => Package("_root_")
+      case l @ ::(_, _) => Package(NonEmptyList.fromCons(l))
+    }
 }
 
 object Package {
-  val scala: Package  = Package(NonEmptyList("scala"))
-  val predef: Package = Package(NonEmptyList("scala", "Predef"))
+  def apply(first: String, rest: String*): Package = Package(NonEmptyList(first, rest: _*).reverse)
+
+  val scala: Package    = Package("scala")
+  val predef: Package   = Package("scala", "Predef")
+  val javaUtil: Package = Package("java", "util")
+  val javaLang: Package = Package("java", "lang")
+  val javaMath: Package = Package("java", "math")
+  val javaTime: Package = Package("java", "time")
 }

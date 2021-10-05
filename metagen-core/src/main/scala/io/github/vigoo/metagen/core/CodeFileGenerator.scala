@@ -8,6 +8,7 @@ import zio.{Chunk, Has, IO, Ref, UIO, ZIO}
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Paths
+import scala.annotation.tailrec
 import scala.meta._
 import scala.meta.contrib.XtensionTreeEquality
 import scala.meta.internal.prettyprinters.TreeSyntax
@@ -25,7 +26,14 @@ object CodeFileGenerator {
 
     def targetPath: UIO[Path] =
       contextRef.get.map(context =>
-        context.globalContext.root / context.currentPackage.asPath / (context.name + ".scala")
+        context.target match {
+          case CodeFileGeneratorContext.ScalaPackage(pkg, name)             =>
+            context.globalContext.root / pkg.asPath / (name + ".scala")
+          case CodeFileGeneratorContext.ScalaPackageObject(parentPkg, name) =>
+            context.globalContext.root / parentPkg.asPath / name / "package.scala"
+          case CodeFileGeneratorContext.RawFile(relativePath)               =>
+            context.globalContext.root / relativePath
+        }
       )
 
     def writeIfDifferent(contents: String): ZIO[Blocking, GeneratorFailure[Nothing], Unit] =
@@ -80,24 +88,39 @@ object CodeFileGenerator {
             val usedTypes =
               tree
                 .collect {
-                  case t: Type.Select if t.qual.isEqual(q"scala") || t.qual.isEqual(q"scala.Predef") =>
-                    (t.qual, t.name)
+                  case Type.Select(qual, name) =>
+                    List((qual, name))
+                  case Type.Apply(t, ts)       =>
+                    (t :: ts).collect { case Type.Select(qual, name) =>
+                      (qual, name)
+                    }
                 }
-                .groupBy(_._1)
+                .flatten
+                .groupBy { case (ref, _) => new WrappedRef(ref) }
+                .mapValues(_.map(_._2.value).toSet)
+                .filterKeys(r => !r.ref.isEqual(Package.scala.term))
+                .filterKeys(r => !r.ref.isEqual(Package.predef.term))
+                .toMap
 
-            val finalState = usedTypes.foldLeft(OptimizationState.initial) { case (state, (ref, names)) =>
-              names.foldLeft(state) { case (state, (_, name)) =>
-                if (state.usedNames.contains(name.value)) {
+            val definedNames =
+              tree.collect {
+                case Defn.Class(_, name, _, _, _) => name.value
+                case Defn.Trait(_, name, _, _, _) => name.value
+              }.toSet
+
+            val finalState = usedTypes.foldLeft(OptimizationState.initial(definedNames)) { case (state, (ref, names)) =>
+              names.foldLeft(state) { case (state, name) =>
+                if (state.usedNames.contains(name)) {
                   // This type name is already in scope, we have to keep it fully qualified in the source
                   state.copy(
-                    keepFullyQualified = state.keepFullyQualified + Type.Select(ref, name).toString()
+                    keepFullyQualified = state.keepFullyQualified + Type.Select(ref.ref, Type.Name(name)).toString()
                   )
                 } else {
                   // This type name is not in scope yet, we can import it
                   state.copy(
-                    usedNames = state.usedNames + name.value,
+                    usedNames = state.usedNames + name,
                     imports = Import(
-                      List(Importer(ref, names.map { case (_, name) => Importee.Name(Name(name.value)) }))
+                      List(Importer(ref.ref, List(Importee.Name(Name(name)))))
                     ) :: state.imports
                   )
                 }
@@ -105,33 +128,127 @@ object CodeFileGenerator {
             }
 
             val transformedTree =
-              tree.transform {
-                case t: Type.Select if !finalState.keepFullyQualified.contains(t.toString()) =>
-                  t.name
-              }.asInstanceOf[Term.Block]
+              tree
+                .transform {
+                  case t: Type.Select
+                      if !isInImportStatement(t) && !finalState.keepFullyQualified.contains(t.toString()) && finalState
+                        .importsType(t) =>
+                    t.name
 
-            Pkg(
-              context.currentPackage.term,
-              finalState.imports ++ transformedTree.stats
-            )
+                  case t: Term.Select =>
+                    t.qual match {
+                      case tt: Term.Select
+                          if !isInImportStatement(t) && !finalState.keepFullyQualified.contains(
+                            tt.toString()
+                          ) && finalState.importsTerm(tt) =>
+                        Term.Select(tt.name, t.name)
+                      case _ => t
+                    }
+                }
+                .asInstanceOf[Term.Block]
+
+            context.target match {
+              case CodeFileGeneratorContext.ScalaPackage(pkg, _)                =>
+                Pkg(
+                  pkg.term,
+                  finalState.collapsedImports ++ transformedTree.stats
+                )
+              case CodeFileGeneratorContext.ScalaPackageObject(parentPkg, name) =>
+                Pkg(
+                  parentPkg.term,
+                  finalState.collapsedImports :+
+                    Pkg.Object(
+                      mods = Nil,
+                      name = Term.Name(name),
+                      templ = Template(
+                        early = Nil,
+                        inits = Nil,
+                        self = Self(Name.Anonymous(), None),
+                        stats = transformedTree.stats
+                      )
+                    )
+                )
+
+              case CodeFileGeneratorContext.RawFile(_) =>
+                Term.Block(finalState.collapsedImports ++ transformedTree.stats)
+            }
           }
           .mapError(GeneratorFailure.TreeTransformationFailure)
       }
+
+    @tailrec
+    private def isInImportStatement(t: Tree): Boolean =
+      t.parent match {
+        case Some(Import(_)) => true
+        case Some(parent)    => isInImportStatement(parent)
+        case None            => false
+      }
   }
 
-  case class OptimizationState(usedNames: Set[String], keepFullyQualified: Set[String], imports: List[Import])
+  case class OptimizationState(usedNames: Set[String], keepFullyQualified: Set[String], imports: List[Import]) {
+    lazy val importedTypes: Set[Type.Select] =
+      (for {
+        imp                <- imports
+        importer           <- imp.importers
+        importee           <- importer.importees
+        Importee.Name(name) = importee
+      } yield Type.Select(importer.ref, Type.Name(name.value))).toSet
+
+    lazy val importedTerms: Set[Term.Select] =
+      (for {
+        imp                <- imports
+        importer           <- imp.importers
+        importee           <- importer.importees
+        Importee.Name(name) = importee
+      } yield Term.Select(importer.ref, Term.Name(name.value))).toSet
+
+    def importsType(t: Type.Select): Boolean =
+      importedTypes.exists(r => r.isEqual(t)) ||
+        t.qual.isEqual(Package.scala.term) ||
+        t.qual.isEqual(Package.predef.term)
+
+    def importsTerm(t: Term.Select): Boolean =
+      importedTerms.exists(r => r.isEqual(t)) ||
+        t.qual.isEqual(Package.scala.term) ||
+        t.qual.isEqual(Package.predef.term)
+
+    lazy val collapsedImports: List[Import] =
+      imports
+        .flatMap(_.importers)
+        .groupBy(i => new WrappedRef(i.ref))
+        .toList
+        .map { case (key, importers) =>
+          Import(List(Importer(key.ref, importers.flatMap(_.importees))))
+        }
+  }
   object OptimizationState extends KnownTypes {
-    val initial: OptimizationState =
+    def initial(extraUsedNames: Set[String]): OptimizationState =
       OptimizationState(
-        usedNames = predefinedTypeNames,
+        usedNames = predefinedTypeNames union extraUsedNames,
         keepFullyQualified = Set.empty,
         imports = Nil
       )
   }
 
-  def make(scalafmt: Scalafmt, globalContext: GeneratorContext, pkg: Package, name: String): UIO[CodeFileGenerator] =
+  class WrappedRef(val ref: Term.Ref) {
+    override def equals(obj: Any): Boolean =
+      obj match {
+        case wr: WrappedRef => ref.isEqual(wr.ref)
+        case _              => false
+      }
+
+    override def hashCode(): Int = ref.toString().hashCode
+
+    override def toString: String = ref.toString()
+  }
+
+  def make(
+      scalafmt: Scalafmt,
+      globalContext: GeneratorContext,
+      target: CodeFileGeneratorContext.Target
+  ): UIO[CodeFileGenerator] =
     for {
-      contextRef <- Ref.make(CodeFileGeneratorContext(globalContext, pkg, name))
+      contextRef <- Ref.make(CodeFileGeneratorContext(globalContext, target))
     } yield new Live(contextRef, scalafmt)
 
   def targetPath: ZIO[Has[CodeFileGenerator], Nothing, Path] =
