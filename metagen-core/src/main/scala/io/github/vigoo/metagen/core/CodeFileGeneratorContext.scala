@@ -3,7 +3,7 @@ package io.github.vigoo.metagen.core
 import io.github.vigoo.metagen.core.CodeFileGeneratorContext.Target
 import zio.nio.core.file.Path
 
-final case class CodeFileGeneratorContext(globalContext: GeneratorContext, target: Target)
+final case class CodeFileGeneratorContext(globalContext: GeneratorContext, target: Target, knownNames: Set[String])
 
 object CodeFileGeneratorContext {
   sealed trait Target

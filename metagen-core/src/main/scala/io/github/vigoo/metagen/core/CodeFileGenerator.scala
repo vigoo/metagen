@@ -4,7 +4,7 @@ import org.scalafmt.interfaces.Scalafmt
 import zio.blocking._
 import zio.nio.core.file.Path
 import zio.nio.file.Files
-import zio.{Chunk, Has, IO, Ref, UIO, ZIO}
+import zio.{Chunk, Has, IO, Ref, UIO, ZIO, console}
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Paths
@@ -18,7 +18,8 @@ trait CodeFileGenerator {
   def writeIfDifferent(contents: String): ZIO[Blocking, GeneratorFailure[Nothing], Unit]
   def prettyPrint(tree: Tree): IO[GeneratorFailure[Nothing], String]
   def format(contents: String): ZIO[Blocking, GeneratorFailure[Nothing], String]
-  def seal(tree: Term.Block): ZIO[Any, GeneratorFailure[Nothing], Tree]
+  def seal(tree: Term.Block): IO[GeneratorFailure[Nothing], Tree]
+  def knownLocalName(name: String): IO[Nothing, Unit]
 }
 
 object CodeFileGenerator {
@@ -81,6 +82,11 @@ object CodeFileGenerator {
         }
         .mapError(GeneratorFailure.ScalaFmtFailure)
 
+    def knownLocalName(name: String): IO[Nothing, Unit] =
+      contextRef.update { context =>
+        context.copy(knownNames = context.knownNames + name)
+      }
+
     def seal(tree: Term.Block): ZIO[Any, GeneratorFailure[Nothing], Tree] =
       contextRef.get.flatMap { context =>
         ZIO
@@ -105,7 +111,7 @@ object CodeFileGenerator {
               tree.collect {
                 case Defn.Class(_, name, _, _, _) => name.value
                 case Defn.Trait(_, name, _, _, _) => name.value
-              }.toSet
+              }.toSet union context.knownNames
 
             val finalState = usedTypes.foldLeft(OptimizationState.initial(definedNames)) { case (state, (ref, names)) =>
               names.foldLeft(state) { case (state, name) =>
@@ -253,7 +259,7 @@ object CodeFileGenerator {
       target: CodeFileGeneratorContext.Target
   ): UIO[CodeFileGenerator] =
     for {
-      contextRef <- Ref.make(CodeFileGeneratorContext(globalContext, target))
+      contextRef <- Ref.make(CodeFileGeneratorContext(globalContext, target, Set.empty))
     } yield new Live(contextRef, scalafmt)
 
   def targetPath: ZIO[Has[CodeFileGenerator], Nothing, Path] =
@@ -270,4 +276,7 @@ object CodeFileGenerator {
 
   def seal(tree: Term.Block): ZIO[Has[CodeFileGenerator], GeneratorFailure[Nothing], Tree] =
     ZIO.serviceWith(_.seal(tree))
+
+  def knownLocalName(name: String): ZIO[Has[CodeFileGenerator], Nothing, Unit] =
+    ZIO.serviceWith(_.knownLocalName(name))
 }
