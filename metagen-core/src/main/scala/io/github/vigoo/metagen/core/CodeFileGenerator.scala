@@ -104,30 +104,37 @@ object CodeFileGenerator {
                 .flatten
                 .groupBy { case (ref, _) => new WrappedRef(ref) }
                 .mapValues(_.map(_._2.value).toSet)
-                .filterKeys(r => !r.ref.isEqual(Package.scala.term))
-                .filterKeys(r => !r.ref.isEqual(Package.predef.term))
 
             val definedNames =
               tree.collect {
                 case Defn.Class(_, name, _, _, _) => name.value
                 case Defn.Trait(_, name, _, _, _) => name.value
-              }.toSet union context.knownNames
+              }.toSet
 
-            val finalState = usedTypes.foldLeft(OptimizationState.initial(definedNames)) { case (state, (ref, names)) =>
+            val initialState = OptimizationState.initial(definedNames union context.knownNames)
+
+            val finalState = usedTypes.foldLeft(initialState) { case (state, (ref, names)) =>
+              val isFromPredef = ref.ref.isEqual(Package.scala.term) || ref.ref.isEqual(Package.predef.term)
+
               names.foldLeft(state) { case (state, name) =>
-                if (state.usedNames.contains(name)) {
-                  // This type name is already in scope, we have to keep it fully qualified in the source
-                  state.copy(
-                    keepFullyQualified = state.keepFullyQualified + Type.Select(ref.ref, Type.Name(name)).toString()
-                  )
+                val collidingPredef = state.collidingPredefs.contains(name)
+                if (!isFromPredef || collidingPredef) {
+                  if (state.usedNames.contains(name) || collidingPredef) {
+                    // This type name is already in scope, we have to keep it fully qualified in the source
+                    state.copy(
+                      keepFullyQualified = state.keepFullyQualified + Type.Select(ref.ref, Type.Name(name)).toString()
+                    )
+                  } else {
+                    // This type name is not in scope yet, we can import it
+                    state.copy(
+                      usedNames = state.usedNames + name,
+                      imports = Import(
+                        List(Importer(ref.ref, List(Importee.Name(Name(name)))))
+                      ) :: state.imports
+                    )
+                  }
                 } else {
-                  // This type name is not in scope yet, we can import it
-                  state.copy(
-                    usedNames = state.usedNames + name,
-                    imports = Import(
-                      List(Importer(ref.ref, List(Importee.Name(Name(name)))))
-                    ) :: state.imports
-                  )
+                  state
                 }
               }
             }
@@ -190,7 +197,12 @@ object CodeFileGenerator {
       }
   }
 
-  case class OptimizationState(usedNames: Set[String], keepFullyQualified: Set[String], imports: List[Import]) {
+  case class OptimizationState(
+      usedNames: Set[String],
+      keepFullyQualified: Set[String],
+      imports: List[Import],
+      collidingPredefs: Set[String]
+  ) {
     lazy val importedTypes: Set[Type.Select] =
       (for {
         imp                <- imports
@@ -235,9 +247,10 @@ object CodeFileGenerator {
   object OptimizationState extends KnownTypes {
     def initial(extraUsedNames: Set[String]): OptimizationState =
       OptimizationState(
-        usedNames = predefinedTypeNames union extraUsedNames,
+        usedNames = (predefinedTypeNames diff extraUsedNames) union (extraUsedNames diff predefinedTypeNames),
         keepFullyQualified = Set.empty,
-        imports = Nil
+        imports = Nil,
+        collidingPredefs = predefinedTypeNames intersect extraUsedNames
       )
   }
 
