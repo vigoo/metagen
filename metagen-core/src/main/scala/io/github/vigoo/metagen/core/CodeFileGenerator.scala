@@ -100,7 +100,6 @@ object CodeFileGenerator {
                 .mapValues(_.map(_._2.value).toSet)
                 .filterKeys(r => !r.ref.isEqual(Package.scala.term))
                 .filterKeys(r => !r.ref.isEqual(Package.predef.term))
-                .toMap
 
             val definedNames =
               tree.collect {
@@ -151,12 +150,12 @@ object CodeFileGenerator {
               case CodeFileGeneratorContext.ScalaPackage(pkg, _)                =>
                 Pkg(
                   pkg.term,
-                  finalState.collapsedImports ++ transformedTree.stats
+                  finalState.collapsedImports(Some(pkg)) ++ transformedTree.stats
                 )
               case CodeFileGeneratorContext.ScalaPackageObject(parentPkg, name) =>
                 Pkg(
                   parentPkg.term,
-                  finalState.collapsedImports :+
+                  finalState.collapsedImports(Some(parentPkg)) :+
                     Pkg.Object(
                       mods = Nil,
                       name = Term.Name(name),
@@ -170,7 +169,7 @@ object CodeFileGenerator {
                 )
 
               case CodeFileGeneratorContext.RawFile(_) =>
-                Term.Block(finalState.collapsedImports ++ transformedTree.stats)
+                Term.Block(finalState.collapsedImports(None) ++ transformedTree.stats)
             }
           }
           .mapError(GeneratorFailure.TreeTransformationFailure)
@@ -212,11 +211,17 @@ object CodeFileGenerator {
         t.qual.isEqual(Package.scala.term) ||
         t.qual.isEqual(Package.predef.term)
 
-    lazy val collapsedImports: List[Import] =
+    def collapsedImports(localPackage: Option[Package]): List[Import] =
       imports
         .flatMap(_.importers)
         .groupBy(i => new WrappedRef(i.ref))
         .toList
+        .filter { case (key, _) =>
+          localPackage match {
+            case Some(pkg) => !pkg.term.isEqual(key.ref)
+            case None      => true
+          }
+        }
         .map { case (key, importers) =>
           Import(List(Importer(key.ref, importers.flatMap(_.importees))))
         }
