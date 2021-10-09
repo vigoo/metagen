@@ -111,11 +111,8 @@ object CodeFileGenerator {
                 case Defn.Trait(_, name, _, _, _) => name.value
               }.toSet
 
-            val allNames =
+            val localNames =
               tree.collect {
-                case Defn.Class(_, name, _, _, _)  => name.value
-                case Defn.Trait(_, name, _, _, _)  => name.value
-                case Defn.Object(_, name, _)       => name.value
                 case Pat.Var(name)                 => name.value
                 case Defn.Def(_, name, _, _, _, _) => name.value
                 case Term.Param(_, name, _, _)     => name.value
@@ -161,7 +158,7 @@ object CodeFileGenerator {
 
                   case t: Type.Select =>
                     val needRootPrefix = firstTermOf(t.qual) match {
-                      case Some(name) => allNames.contains(name)
+                      case Some(name) => localNames.contains(name)
                       case None       => false
                     }
                     if (needRootPrefix) {
@@ -172,7 +169,7 @@ object CodeFileGenerator {
 
                   case t: Term.Select =>
                     val needRootPrefix = firstTermOf(t.qual) match {
-                      case Some(name) => allNames.contains(name)
+                      case Some(name) => localNames.contains(name)
                       case None       => false
                     }
                     t.qual match {
