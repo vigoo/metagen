@@ -111,6 +111,16 @@ object CodeFileGenerator {
                 case Defn.Trait(_, name, _, _, _) => name.value
               }.toSet
 
+            val allNames =
+              tree.collect {
+                case Defn.Class(_, name, _, _, _)  => name.value
+                case Defn.Trait(_, name, _, _, _)  => name.value
+                case Defn.Object(_, name, _)       => name.value
+                case Pat.Var(name)                 => name.value
+                case Defn.Def(_, name, _, _, _, _) => name.value
+                case Term.Param(_, name, _, _)     => name.value
+              }.toSet
+
             val initialState = OptimizationState.initial(definedNames union context.knownNames)
 
             val finalState = usedTypes.foldLeft(initialState) { case (state, (ref, names)) =>
@@ -143,18 +153,42 @@ object CodeFileGenerator {
               tree
                 .transform {
                   case t: Type.Select
-                      if !isInImportStatement(t) && !finalState.keepFullyQualified.contains(t.toString()) && finalState
-                        .importsType(t) =>
+                      if !isInImportStatement(t) &&
+                        !finalState.keepFullyQualified.contains(t.toString()) &&
+                        finalState.importsType(t) =>
+                    // Dropping selector
                     t.name
 
+                  case t: Type.Select =>
+                    val needRootPrefix = firstTermOf(t.qual) match {
+                      case Some(name) => allNames.contains(name)
+                      case None       => false
+                    }
+                    if (needRootPrefix) {
+                      prependSelector(t, Term.Name("_root_"))
+                    } else {
+                      t
+                    }
+
                   case t: Term.Select =>
+                    val needRootPrefix = firstTermOf(t.qual) match {
+                      case Some(name) => allNames.contains(name)
+                      case None       => false
+                    }
                     t.qual match {
                       case tt: Term.Select
                           if !isInImportStatement(t) && !finalState.keepFullyQualified.contains(
                             tt.toString()
                           ) && finalState.importsTerm(tt) =>
-                        Term.Select(tt.name, t.name)
-                      case _ => t
+                        if (needRootPrefix && finalState.keepFullyQualified.contains(tt.toString()))
+                          prependSelector(Term.Select(tt.name, t.name), Term.Name("_root_"))
+                        else
+                          Term.Select(tt.name, t.name)
+                      case _ =>
+                        if (needRootPrefix && finalState.keepFullyQualified.contains(t.toString()))
+                          prependSelector(t, Term.Name("_root_"))
+                        else
+                          t
                     }
                 }
                 .asInstanceOf[Term.Block]
@@ -187,6 +221,29 @@ object CodeFileGenerator {
           }
           .mapError(GeneratorFailure.TreeTransformationFailure)
       }
+
+    @tailrec
+    private def firstTermOf(term: Term): Option[String] =
+      term match {
+        case Term.Select(qual, _) => firstTermOf(qual)
+        case Term.Name(name)      => Some(name)
+        case _                    => None
+      }
+
+    private def prependSelector(selector: Type.Select, name: Term.Name): Type.Select =
+      selector.qual match {
+        case n: Term.Name   => Type.Select(Term.Select(name, n), selector.name)
+        case s: Term.Select => Type.Select(prependSelector(s, name), selector.name)
+        case _              => selector
+      }
+
+    private def prependSelector(selector: Term.Select, name: Term.Name): Term.Select = {
+      val newQual = selector.qual match {
+        case s: Term.Select => prependSelector(s, name)
+        case n: Term.Name   => Term.Select(name, n)
+      }
+      Term.Select(newQual, selector.name)
+    }
 
     @tailrec
     private def isInImportStatement(t: Tree): Boolean =
