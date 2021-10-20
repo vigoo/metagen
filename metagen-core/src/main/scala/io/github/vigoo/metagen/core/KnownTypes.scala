@@ -166,6 +166,6 @@ trait KnownTypes {
     "Unit",
     "UnsupportedOperationException",
     "ValueOf",
-    "Vector",
+    "Vector"
   )
 }
