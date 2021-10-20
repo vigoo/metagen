@@ -4,7 +4,7 @@ name := "metagen"
 
 lazy val commonSettings = Seq(
   organization           := "io.github.vigoo",
-  scalaVersion           := "2.12.13",
+  scalaVersion           := "2.12.15",
   addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.13.2" cross CrossVersion.full),
   publishMavenStyle      := true,
   licenses               := Seq("APL2" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt")),
@@ -34,7 +34,7 @@ lazy val core = Project("metagen-core", file("metagen-core"))
   .settings(
     libraryDependencies ++= Seq(
       "org.scalameta" %% "scalameta"        % "4.4.29",
-      "org.scalameta" %% "scalafmt-dynamic" % "3.0.2",
+      "org.scalameta" %% "scalafmt-dynamic" % "3.0.6",
       "dev.zio"       %% "zio"              % "1.0.12",
       "dev.zio"       %% "zio-prelude"      % "1.0.0-RC7",
       "dev.zio"       %% "zio-nio"          % "1.0.0-RC11"
