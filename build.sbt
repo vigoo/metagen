@@ -41,7 +41,7 @@ lazy val core = Project("metagen-core", file("metagen-core"))
       "org.scalameta" %% "scalameta"        % "4.4.27",
       "org.scalameta" %% "scalafmt-dynamic" % "3.0.2",
       "dev.zio"       %% "zio"              % "1.0.11",
-      "dev.zio"       %% "zio-prelude"      % "1.0.0-RC6",
+      "dev.zio"       %% "zio-prelude"      % "1.0.0-RC7",
       "dev.zio"       %% "zio-nio"          % "1.0.0-RC11"
     )
   )
