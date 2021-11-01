@@ -4,7 +4,7 @@ name := "metagen"
 
 lazy val commonSettings = Seq(
   organization           := "io.github.vigoo",
-  scalaVersion           := "2.12.15",
+  scalaVersion           := "2.13.7",
   addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.13.2" cross CrossVersion.full),
   publishMavenStyle      := true,
   licenses               := Seq("APL2" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt")),
