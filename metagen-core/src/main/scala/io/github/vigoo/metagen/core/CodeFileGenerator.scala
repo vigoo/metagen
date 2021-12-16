@@ -2,7 +2,7 @@ package io.github.vigoo.metagen.core
 
 import org.scalafmt.interfaces.Scalafmt
 import zio.blocking._
-import zio.nio.core.file.Path
+import zio.nio.file.Path
 import zio.nio.file.Files
 import zio.{Chunk, Has, IO, Ref, UIO, ZIO, console}
 

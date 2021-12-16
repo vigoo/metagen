@@ -1,6 +1,6 @@
 package io.github.vigoo.metagen.core
 
-import zio.nio.core.file.Path
+import zio.nio.file.Path
 import zio.prelude.NonEmptyList
 
 import scala.meta._
