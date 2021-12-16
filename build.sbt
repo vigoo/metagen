@@ -21,7 +21,7 @@ lazy val commonSettings = Seq(
     (for {
       username <- Option(System.getenv().get("SONATYPE_USERNAME"))
       password <- Option(System.getenv().get("SONATYPE_PASSWORD"))
-    } yield Credentials("Sonatype Nexus Repository Manager", "oss.sonatype.org", username, password)).toSeq
+    } yield Credentials("Sonatype Nexus Repository Manager", "s01.oss.sonatype.org", username, password)).toSeq
 )
 
 lazy val root = Project("metagen", file("."))
