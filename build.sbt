@@ -9,6 +9,8 @@ lazy val commonSettings = Seq(
   publishMavenStyle      := true,
   licenses               := Seq("APL2" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt")),
   sonatypeProjectHosting := Some(GitHubHosting("vigoo", "metagen", "daniel.vigovszky@gmail.com")),
+  sonatypeCredentialHost := "s01.oss.sonatype.org",
+  sonatypeRepository     := "https://s01.oss.sonatype.org/service/local",
   developers             := List(
     Developer(
       id = "vigoo",
