@@ -19,6 +19,13 @@ case class ScalaType(pkg: Package, name: String, params: ScalaType*) {
 
   def /(childName: String): ScalaType =
     ScalaType(pkg / name, childName)
+
+  def asString: String = {
+    val init = pkg.asString + "." + name
+    if (params.nonEmpty) {
+      init + "[" + params.map(_.asString).mkString(", ") + "]"
+    } else init
+  }
 }
 
 object ScalaType {

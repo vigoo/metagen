@@ -31,6 +31,8 @@ case class Package(path: NonEmptyList[String]) {
       case Nil          => Package("_root_")
       case l @ ::(_, _) => Package(NonEmptyList.fromCons(l))
     }
+
+  def asString: String = path.reverse.mkString(".")
 }
 
 object Package {

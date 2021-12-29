@@ -20,6 +20,7 @@ trait CodeFileGenerator {
   def format(contents: String): ZIO[Blocking, GeneratorFailure[Nothing], String]
   def seal(tree: Term.Block): IO[GeneratorFailure[Nothing], Tree]
   def knownLocalName(name: String): IO[Nothing, Unit]
+  def keepFullyQualified(typ: ScalaType): IO[Nothing, Unit]
 }
 
 object CodeFileGenerator {
@@ -94,6 +95,11 @@ object CodeFileGenerator {
         context.copy(knownNames = context.knownNames + name)
       }
 
+    def keepFullyQualified(typ: ScalaType): IO[Nothing, Unit] =
+      contextRef.update { context =>
+        context.copy(keepFullyQualified = context.keepFullyQualified + typ)
+      }
+
     def seal(tree: Term.Block): ZIO[Any, GeneratorFailure[Nothing], Tree] =
       contextRef.get.flatMap { context =>
         ZIO
@@ -125,7 +131,8 @@ object CodeFileGenerator {
                 case Term.Param(_, name, _, _)     => name.value
               }.toSet
 
-            val initialState = OptimizationState.initial(definedNames union context.knownNames)
+            val initialState =
+              OptimizationState.initial(definedNames union context.knownNames, context.keepFullyQualified)
 
             val finalState = usedTypes.foldLeft(initialState) { case (state, (ref, names)) =>
               val isFromPredef = ref.ref.isEqual(Package.scala.term) || ref.ref.isEqual(Package.predef.term)
@@ -306,10 +313,10 @@ object CodeFileGenerator {
         }
   }
   object OptimizationState extends KnownTypes {
-    def initial(extraUsedNames: Set[String]): OptimizationState =
+    def initial(extraUsedNames: Set[String], keepFullyQualified: Set[ScalaType]): OptimizationState =
       OptimizationState(
         usedNames = (predefinedTypeNames diff extraUsedNames) union (extraUsedNames diff predefinedTypeNames),
-        keepFullyQualified = Set.empty,
+        keepFullyQualified = keepFullyQualified.map(_.asString),
         imports = Nil,
         collidingPredefs = predefinedTypeNames intersect extraUsedNames
       )
@@ -333,7 +340,7 @@ object CodeFileGenerator {
       target: CodeFileGeneratorContext.Target
   ): UIO[CodeFileGenerator] =
     for {
-      contextRef <- Ref.make(CodeFileGeneratorContext(globalContext, target, Set.empty))
+      contextRef <- Ref.make(CodeFileGeneratorContext(globalContext, target, Set.empty, Set.empty))
     } yield new Live(contextRef, scalafmt)
 
   def targetPath: ZIO[Has[CodeFileGenerator], Nothing, Path] =
@@ -353,4 +360,7 @@ object CodeFileGenerator {
 
   def knownLocalName(name: String): ZIO[Has[CodeFileGenerator], Nothing, Unit] =
     ZIO.serviceWith(_.knownLocalName(name))
+
+  def keepFullyQualified(typ: ScalaType): ZIO[Has[CodeFileGenerator], Nothing, Unit] =
+    ZIO.serviceWith(_.keepFullyQualified(typ))
 }
