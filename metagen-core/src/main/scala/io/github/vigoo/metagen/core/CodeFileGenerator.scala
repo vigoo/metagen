@@ -74,13 +74,20 @@ object CodeFileGenerator {
       }
 
     def format(contents: String): ZIO[Blocking, GeneratorFailure[Nothing], String] =
-      targetPath
-        .flatMap { path =>
-          effectBlocking {
-            scalafmt.format(Paths.get(".scalafmt.conf"), path.toFile.toPath, contents)
+      contextRef.get.flatMap { context =>
+        val version =
+          if (context.globalContext.scalaVersion.startsWith("3.")) "3"
+          else if (context.globalContext.scalaVersion.startsWith("2.13.")) "2.13"
+          else "2.12"
+
+        targetPath
+          .flatMap { path =>
+            effectBlocking {
+              scalafmt.format(Paths.get(s".scalafmt.$version.conf"), path.toFile.toPath, contents)
+            }
           }
-        }
-        .mapError(GeneratorFailure.ScalaFmtFailure)
+          .mapError(GeneratorFailure.ScalaFmtFailure)
+      }
 
     def knownLocalName(name: String): IO[Nothing, Unit] =
       contextRef.update { context =>
