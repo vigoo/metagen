@@ -2,6 +2,8 @@ package io.github.vigoo.metagen.core
 
 import scala.meta._
 
+// TODO: a with b
+
 case class ScalaType(pkg: Package, name: String, params: ScalaType*) {
 
   def unapplied: ScalaType = ScalaType(pkg, name)

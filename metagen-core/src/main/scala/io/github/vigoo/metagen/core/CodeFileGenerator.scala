@@ -1,10 +1,9 @@
 package io.github.vigoo.metagen.core
 
 import org.scalafmt.interfaces.Scalafmt
-import zio.blocking._
 import zio.nio.file.Path
 import zio.nio.file.Files
-import zio.{Chunk, Has, IO, Ref, UIO, ZIO, console}
+import zio.{Chunk, IO, Ref, UIO, ZIO}
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Paths
@@ -15,9 +14,9 @@ import scala.meta.internal.prettyprinters.TreeSyntax
 
 trait CodeFileGenerator {
   def targetPath: UIO[Path]
-  def writeIfDifferent(contents: String): ZIO[Blocking, GeneratorFailure[Nothing], Unit]
+  def writeIfDifferent(contents: String): ZIO[Any, GeneratorFailure[Nothing], Unit]
   def prettyPrint(tree: Tree): IO[GeneratorFailure[Nothing], String]
-  def format(contents: String): ZIO[Blocking, GeneratorFailure[Nothing], String]
+  def format(contents: String): ZIO[Any, GeneratorFailure[Nothing], String]
   def seal(tree: Term.Block): IO[GeneratorFailure[Nothing], Tree]
   def knownLocalName(name: String): IO[Nothing, Unit]
   def keepFullyQualified(typ: ScalaType): IO[Nothing, Unit]
@@ -38,7 +37,7 @@ object CodeFileGenerator {
         }
       )
 
-    def writeIfDifferent(contents: String): ZIO[Blocking, GeneratorFailure[Nothing], Unit] =
+    def writeIfDifferent(contents: String): ZIO[Any, GeneratorFailure[Nothing], Unit] =
       targetPath.flatMap { path =>
         Files.exists(path).flatMap { exists =>
           for {
@@ -67,14 +66,14 @@ object CodeFileGenerator {
           else scala.meta.dialects.Scala212
 
         ZIO
-          .effect {
+          .attempt {
             val prettyPrinter = TreeSyntax[Tree](dialect)
             prettyPrinter(tree).toString
           }
           .mapError(GeneratorFailure.PrettyPrintingFailure)
       }
 
-    def format(contents: String): ZIO[Blocking, GeneratorFailure[Nothing], String] =
+    def format(contents: String): ZIO[Any, GeneratorFailure[Nothing], String] =
       contextRef.get.flatMap { context =>
         val version =
           if (context.globalContext.scalaVersion.startsWith("3.")) "3"
@@ -83,7 +82,7 @@ object CodeFileGenerator {
 
         targetPath
           .flatMap { path =>
-            effectBlocking {
+            ZIO.attemptBlocking {
               scalafmt.format(Paths.get(s".scalafmt.$version.conf"), path.toFile.toPath, contents)
             }
           }
@@ -343,24 +342,24 @@ object CodeFileGenerator {
       contextRef <- Ref.make(CodeFileGeneratorContext(globalContext, target, Set.empty, Set.empty))
     } yield new Live(contextRef, scalafmt)
 
-  def targetPath: ZIO[Has[CodeFileGenerator], Nothing, Path] =
-    ZIO.serviceWith(_.targetPath)
+  def targetPath: ZIO[CodeFileGenerator, Nothing, Path] =
+    ZIO.serviceWithZIO(_.targetPath)
 
-  def writeIfDifferent(contents: String): ZIO[Blocking with Has[CodeFileGenerator], GeneratorFailure[Nothing], Unit] =
+  def writeIfDifferent(contents: String): ZIO[CodeFileGenerator, GeneratorFailure[Nothing], Unit] =
     ZIO.service[CodeFileGenerator].flatMap(_.writeIfDifferent(contents))
 
-  def prettyPrint(tree: Tree): ZIO[Has[CodeFileGenerator], GeneratorFailure[Nothing], String] =
-    ZIO.serviceWith(_.prettyPrint(tree))
+  def prettyPrint(tree: Tree): ZIO[CodeFileGenerator, GeneratorFailure[Nothing], String] =
+    ZIO.serviceWithZIO(_.prettyPrint(tree))
 
-  def format(contents: String): ZIO[Blocking with Has[CodeFileGenerator], GeneratorFailure[Nothing], String] =
+  def format(contents: String): ZIO[CodeFileGenerator, GeneratorFailure[Nothing], String] =
     ZIO.service[CodeFileGenerator].flatMap(_.format(contents))
 
-  def seal(tree: Term.Block): ZIO[Has[CodeFileGenerator], GeneratorFailure[Nothing], Tree] =
-    ZIO.serviceWith(_.seal(tree))
+  def seal(tree: Term.Block): ZIO[CodeFileGenerator, GeneratorFailure[Nothing], Tree] =
+    ZIO.serviceWithZIO(_.seal(tree))
 
-  def knownLocalName(name: String): ZIO[Has[CodeFileGenerator], Nothing, Unit] =
-    ZIO.serviceWith(_.knownLocalName(name))
+  def knownLocalName(name: String): ZIO[CodeFileGenerator, Nothing, Unit] =
+    ZIO.serviceWithZIO(_.knownLocalName(name))
 
-  def keepFullyQualified(typ: ScalaType): ZIO[Has[CodeFileGenerator], Nothing, Unit] =
-    ZIO.serviceWith(_.keepFullyQualified(typ))
+  def keepFullyQualified(typ: ScalaType): ZIO[CodeFileGenerator, Nothing, Unit] =
+    ZIO.serviceWithZIO(_.keepFullyQualified(typ))
 }
