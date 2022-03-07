@@ -122,14 +122,14 @@ object Generator {
     ZIO.service[Generator].flatMap(_.generateRawFile[R, E](relativePath)(contents))
 
   def setScalaVersion(version: String): ZIO[Generator, Nothing, Unit] =
-    ZIO.serviceWith(_.setScalaVersion(version))
+    ZIO.serviceWithZIO(_.setScalaVersion(version))
 
   def enableFormatting(): ZIO[Generator, Nothing, Unit] =
-    ZIO.serviceWith(_.enableFormatting())
+    ZIO.serviceWithZIO(_.enableFormatting())
 
   def disableFormatting(): ZIO[Generator, Nothing, Unit] =
-    ZIO.serviceWith(_.disableFormatting())
+    ZIO.serviceWithZIO(_.disableFormatting())
 
   def setRoot(path: Path): ZIO[Generator, Nothing, Unit] =
-    ZIO.serviceWith(_.setRoot(path))
+    ZIO.serviceWithZIO(_.setRoot(path))
 }

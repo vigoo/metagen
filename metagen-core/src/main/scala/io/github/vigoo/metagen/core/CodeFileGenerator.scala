@@ -102,7 +102,7 @@ object CodeFileGenerator {
     def seal(tree: Term.Block): ZIO[Any, GeneratorFailure[Nothing], Tree] =
       contextRef.get.flatMap { context =>
         ZIO
-          .effect {
+          .attempt {
             val usedTypes =
               tree
                 .collect {
