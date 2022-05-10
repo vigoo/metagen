@@ -104,7 +104,7 @@ object Generator {
       contextRef <- Ref.make(GeneratorContext(defaultScalaVersion, formattingEnabled = true, root = Path(".")))
     } yield new Live(contextRef, scalafmt)
 
-  val live: ZLayer[Any, GeneratorFailure[Nothing], Generator] = make.toLayer
+  val live: ZLayer[Any, GeneratorFailure[Nothing], Generator] = ZLayer(make)
 
   def generateScalaPackage[R, E](pkg: Package, name: String)(
       contents: ZIO[R with CodeFileGenerator, E, Term.Block]
