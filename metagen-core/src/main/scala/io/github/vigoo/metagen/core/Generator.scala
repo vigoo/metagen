@@ -43,6 +43,7 @@ object Generator {
             optimizedTree <- CodeFileGenerator.seal(tree)
             path          <- CodeFileGenerator.targetPath
             unformatted   <- CodeFileGenerator.prettyPrint(optimizedTree)
+            withDoc       <- CodeFileGenerator.injectScaladocToGeneratedCode(unformatted)
             _             <- path.parent match {
                                case Some(directory) =>
                                  Files.createDirectories(directory).mapError(GeneratorFailure.FailedToCreateDirectories)
@@ -50,11 +51,11 @@ object Generator {
                              }
             _             <- if (context.formattingEnabled) {
                                for {
-                                 formatted <- CodeFileGenerator.format(unformatted)
+                                 formatted <- CodeFileGenerator.format(withDoc)
                                  _         <- CodeFileGenerator.writeIfDifferent(formatted)
                                } yield ()
                              } else {
-                               CodeFileGenerator.writeIfDifferent(unformatted)
+                               CodeFileGenerator.writeIfDifferent(withDoc)
                              }
           } yield path
         env               <- ZIO.environment[R]

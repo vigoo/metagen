@@ -7,7 +7,8 @@ final case class CodeFileGeneratorContext(
     globalContext: GeneratorContext,
     target: Target,
     knownNames: Set[String],
-    keepFullyQualified: Set[ScalaType]
+    keepFullyQualified: Set[ScalaType],
+    scaladocs: Map[ScaladocId, String]
 )
 
 object CodeFileGeneratorContext {

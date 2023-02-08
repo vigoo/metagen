@@ -20,6 +20,8 @@ trait CodeFileGenerator {
   def seal(tree: Term.Block): IO[GeneratorFailure[Nothing], Tree]
   def knownLocalName(name: String): IO[Nothing, Unit]
   def keepFullyQualified(typ: ScalaType): IO[Nothing, Unit]
+  def addScaladoc(lines: String): IO[Nothing, Mod.Annot]
+  def injectScaladocToGeneratedCode(code: String): IO[Nothing, String]
 }
 
 object CodeFileGenerator {
@@ -232,6 +234,29 @@ object CodeFileGenerator {
           .mapError(GeneratorFailure.TreeTransformationFailure)
       }
 
+    override def addScaladoc(lines: String): IO[Nothing, Mod.Annot] =
+      contextRef.modify { context =>
+        val id             = ScaladocId.next
+        val updatedContext = context.copy(scaladocs = context.scaladocs + (id -> lines))
+        (mod"@io.github.vigoo.metagen.core.generatedScaladoc(${id.lit})", updatedContext)
+      }
+
+    override def injectScaladocToGeneratedCode(code: String): IO[Nothing, String] =
+      contextRef.get.map { context =>
+        context.scaladocs
+          .foldLeft(code) { case (code, (id, lines)) =>
+            val splitLines       = lines.linesIterator.toVector
+            val renderedScaladoc =
+              if (splitLines.size == 1)
+                "/** " + lines + " */ "
+              else
+                "/**\n" + lines.linesIterator.map(" * " + _).mkString("\n") + "\n */\n"
+            val from             = "@io.github.vigoo.metagen.core.generatedScaladoc(\"" + id.value.toString + "\")"
+            code.replace(from, renderedScaladoc)
+          }
+          .replace("""import io.github.vigoo.metagen.core.generatedScaladoc""", "")
+      }
+
     @tailrec
     private def firstTermOf(term: Term): Option[String] =
       term match {
@@ -339,7 +364,16 @@ object CodeFileGenerator {
       target: CodeFileGeneratorContext.Target
   ): UIO[CodeFileGenerator] =
     for {
-      contextRef <- Ref.make(CodeFileGeneratorContext(globalContext, target, Set.empty, Set.empty))
+      contextRef <- Ref.make(
+                      CodeFileGeneratorContext(
+                        globalContext,
+                        target,
+                        knownNames = Set.empty,
+                        keepFullyQualified =
+                          Set(ScalaType(Package("io", "github", "vigoo", "metagen", "core"), "generatedScaladoc")),
+                        scaladocs = Map.empty
+                      )
+                    )
     } yield new Live(contextRef, scalafmt)
 
   def targetPath: ZIO[CodeFileGenerator, Nothing, Path] =
@@ -362,4 +396,10 @@ object CodeFileGenerator {
 
   def keepFullyQualified(typ: ScalaType): ZIO[CodeFileGenerator, Nothing, Unit] =
     ZIO.serviceWithZIO(_.keepFullyQualified(typ))
+
+  def addScaladoc(lines: String): ZIO[CodeFileGenerator, Nothing, Mod.Annot] =
+    ZIO.serviceWithZIO(_.addScaladoc(lines))
+
+  def injectScaladocToGeneratedCode(code: String): ZIO[CodeFileGenerator, Nothing, String] =
+    ZIO.serviceWithZIO(_.injectScaladocToGeneratedCode(code))
 }
