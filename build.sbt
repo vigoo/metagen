@@ -35,12 +35,12 @@ lazy val core = Project("metagen-core", file("metagen-core"))
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "org.scalameta" %% "scalameta"        % "4.7.3",
+      "org.scalameta" %% "scalameta"        % "4.7.5",
       "org.scalameta" %% "scalafmt-dynamic" % "3.7.2",
-      "dev.zio"       %% "zio"              % "2.0.10",
-      "dev.zio"       %% "zio-prelude"      % "1.0.0-RC16",
+      "dev.zio"       %% "zio"              % "2.0.13",
+      "dev.zio"       %% "zio-prelude"      % "1.0.0-RC19",
       "dev.zio"       %% "zio-nio"          % "2.0.1",
-      "dev.zio"       %% "zio-test"         % "2.0.10" % Test
+      "dev.zio"       %% "zio-test"         % "2.0.13" % Test
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
   )
