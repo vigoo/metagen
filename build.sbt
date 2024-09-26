@@ -35,7 +35,7 @@ lazy val core = Project("metagen-core", file("metagen-core"))
   .settings(commonSettings)
   .settings(
     libraryDependencies ++= Seq(
-      "org.scalameta" %% "scalameta"        % "4.9.3",
+      "org.scalameta" %% "scalameta"        % "4.9.9",
       "org.scalameta" %% "scalafmt-dynamic" % "3.8.3",
       "dev.zio"       %% "zio"              % "2.0.22",
       "dev.zio"       %% "zio-prelude"      % "1.0.0-RC31",
